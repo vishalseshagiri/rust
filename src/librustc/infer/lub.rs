@@ -8,13 +8,14 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use super::InferCtxt;
-use super::Subtype;
 use super::combine::CombineFields;
+use super::InferCtxt;
 use super::lattice::{self, LatticeDir};
+use super::Subtype;
 
 use traits::ObligationCause;
 use ty::{self, Ty, TyCtxt};
+use ty::error::TypeError;
 use ty::relate::{Relate, RelateResult, TypeRelation};
 
 /// "Least upper bound" (common supertype)
@@ -74,10 +75,23 @@ impl<'combine, 'infcx, 'gcx, 'tcx> TypeRelation<'infcx, 'gcx, 'tcx>
                   -> RelateResult<'tcx, ty::Binder<T>>
         where T: Relate<'tcx>
     {
-        // Otherwise, we make the (overly strict) requirement that
-        // the two sides are equal.
-        self.relate_with_variance(ty::Variance::Invariant, a, b)?;
-        Ok(a.clone())
+        let was_error = self.infcx().probe(|_snapshot| {
+            self.fields.higher_ranked_lub(a, b, self.a_is_expected).is_ok()
+        });
+
+        // When higher-ranked types are involved, computing the LUB is
+        // very challenging, switch to invariance. This is obviously
+        // overly conservative but works ok in practice.
+        match self.relate_with_variance(ty::Variance::Invariant, a, b) {
+            Ok(_) => Ok(a.clone()),
+            Err(err) => {
+                if !was_error {
+                    Err(TypeError::OldStyleLUB(Box::new(err)))
+                } else {
+                    Err(err)
+                }
+            }
+        }
     }
 }
 
