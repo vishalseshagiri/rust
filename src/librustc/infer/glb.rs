@@ -75,9 +75,11 @@ impl<'combine, 'infcx, 'gcx, 'tcx> TypeRelation<'infcx, 'gcx, 'tcx>
                   -> RelateResult<'tcx, ty::Binder<T>>
         where T: Relate<'tcx>
     {
+        debug!("binders(a={:?}, b={:?})", a, b);
         let was_error = self.infcx().probe(|_snapshot| {
-            self.fields.higher_ranked_glb(a, b, self.a_is_expected).is_ok()
+            self.fields.higher_ranked_glb(a, b, self.a_is_expected).is_err()
         });
+        debug!("binders: was_error={:?}", was_error);
 
         // When higher-ranked types are involved, computing the LUB is
         // very challenging, switch to invariance. This is obviously
@@ -85,6 +87,7 @@ impl<'combine, 'infcx, 'gcx, 'tcx> TypeRelation<'infcx, 'gcx, 'tcx>
         match self.relate_with_variance(ty::Variance::Invariant, a, b) {
             Ok(_) => Ok(a.clone()),
             Err(err) => {
+                debug!("binders: error occurred, was_error={:?}", was_error);
                 if !was_error {
                     Err(TypeError::OldStyleLUB(Box::new(err)))
                 } else {
