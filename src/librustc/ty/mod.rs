@@ -886,7 +886,7 @@ pub enum Predicate<'tcx> {
     /// No direct syntax. May be thought of as `where T : FnFoo<...>`
     /// for some substitutions `...` and T being a closure type.
     /// Satisfied (or refuted) once we know the closure's kind.
-    ClosureKind(DefId, ClosureKind),
+    ClosureKind(DefId, ClosureSubsts<'tcx>, ClosureKind),
 
     /// `T1 <: T2`
     Subtype(PolySubtypePredicate<'tcx>),
@@ -983,8 +983,8 @@ impl<'a, 'gcx, 'tcx> Predicate<'tcx> {
                 Predicate::WellFormed(data.subst(tcx, substs)),
             Predicate::ObjectSafe(trait_def_id) =>
                 Predicate::ObjectSafe(trait_def_id),
-            Predicate::ClosureKind(closure_def_id, kind) =>
-                Predicate::ClosureKind(closure_def_id, kind),
+            Predicate::ClosureKind(closure_def_id, closure_substs, kind) =>
+                Predicate::ClosureKind(closure_def_id, closure_substs.subst(tcx, substs), kind),
             Predicate::ConstEvaluatable(def_id, const_substs) =>
                 Predicate::ConstEvaluatable(def_id, const_substs.subst(tcx, substs)),
         }
@@ -1166,8 +1166,8 @@ impl<'tcx> Predicate<'tcx> {
             ty::Predicate::ObjectSafe(_trait_def_id) => {
                 vec![]
             }
-            ty::Predicate::ClosureKind(_closure_def_id, _kind) => {
-                vec![]
+            ty::Predicate::ClosureKind(_closure_def_id, closure_substs, _kind) => {
+                closure_substs.substs.types().collect()
             }
             ty::Predicate::ConstEvaluatable(_, substs) => {
                 substs.types().collect()
