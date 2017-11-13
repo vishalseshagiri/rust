@@ -1338,26 +1338,17 @@ impl<'a, 'gcx, 'tcx> InferCtxt<'a, 'gcx, 'tcx> {
         !traits::type_known_to_meet_bound(self, param_env, ty, copy_def_id, span)
     }
 
+    /// Obtains the latest type of the given closure; this may be a
+    /// closure in the current function, in which case its
+    /// `ClosureKind` may not yet be known.
     pub fn closure_kind(&self,
-                        def_id: DefId)
+                        closure_def_id: DefId,
+                        closure_substs: ty::ClosureSubsts<'tcx>)
                         -> Option<ty::ClosureKind>
     {
-        if let Some(tables) = self.in_progress_tables {
-            if let Some(id) = self.tcx.hir.as_local_node_id(def_id) {
-                let hir_id = self.tcx.hir.node_to_hir_id(id);
-                return tables.borrow()
-                             .closure_kinds()
-                             .get(hir_id)
-                             .cloned()
-                             .map(|(kind, _)| kind);
-            }
-        }
-
-        // During typeck, ALL closures are local. But afterwards,
-        // during trans, we see closure ids from other traits.
-        // That may require loading the closure data out of the
-        // cstore.
-        Some(self.tcx.closure_kind(def_id))
+        let closure_kind_ty = closure_substs.closure_kind_ty(closure_def_id, self.tcx);
+        let closure_kind_ty = self.shallow_resolve(&closure_kind_ty);
+        closure_kind_ty.to_opt_closure_kind()
     }
 
     /// Obtain the signature of a function or closure.
@@ -1368,26 +1359,21 @@ impl<'a, 'gcx, 'tcx> InferCtxt<'a, 'gcx, 'tcx> {
         if let Some(tables) = self.in_progress_tables {
             if let Some(id) = self.tcx.hir.as_local_node_id(def_id) {
                 let hir_id = self.tcx.hir.node_to_hir_id(id);
-                if let Some(&ty) = tables.borrow().closure_tys().get(hir_id) {
-                    return ty;
-                }
+                let closure_ty = tables.borrow().node_id_to_type(hir_id);
+                let (closure_def_id, closure_substs) = match closure_ty.sty {
+                    ty::TyClosure(closure_def_id, closure_substs) =>
+                        (closure_def_id, closure_substs),
+                    _ =>
+                        bug!("closure with non-closure type: {:?}", closure_ty),
+                };
+                assert_eq!(def_id, closure_def_id);
+                let closure_sig_ty = closure_substs.closure_sig_ty(def_id, self.tcx);
+                let closure_sig_ty = self.shallow_resolve(&closure_sig_ty);
+                return closure_sig_ty.fn_sig(self.tcx);
             }
         }
 
         self.tcx.fn_sig(def_id)
-    }
-
-    pub fn generator_sig(&self, def_id: DefId) -> Option<ty::PolyGenSig<'tcx>> {
-        if let Some(tables) = self.in_progress_tables {
-            if let Some(id) = self.tcx.hir.as_local_node_id(def_id) {
-                let hir_id = self.tcx.hir.node_to_hir_id(id);
-                if let Some(&ty) = tables.borrow().generator_sigs().get(hir_id) {
-                    return ty.map(|t| ty::Binder(t));
-                }
-            }
-        }
-
-        self.tcx.generator_sig(def_id)
     }
 }
 
